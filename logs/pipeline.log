@@ -1,0 +1,19 @@
+2025-07-24 12:38:07,521 - pipeline - INFO - 🚀 Запуск полного пайплайна Super Trading Bot
+2025-07-24 12:38:07,521 - pipeline - INFO - ==================================================
+2025-07-24 12:38:07,522 - pipeline - INFO - 12:38:07 → Запуск data/generate_enhanced_history.py
+2025-07-24 12:44:15,234 - pipeline - INFO - ✓ data/generate_enhanced_history.py завершен успешно.
+2025-07-24 12:44:15,235 - pipeline - INFO - ------------------------------
+2025-07-24 12:44:15,235 - pipeline - INFO - 12:44:15 → Запуск data_generation/generate_ideal_labels.py
+2025-07-24 12:47:22,046 - pipeline - INFO - ✓ data_generation/generate_ideal_labels.py завершен успешно.
+2025-07-24 12:47:22,047 - pipeline - INFO - ------------------------------
+2025-07-24 12:47:22,047 - pipeline - INFO - 12:47:22 → Запуск data_generation/label_trades.py
+2025-07-24 12:47:22,399 - pipeline - INFO - ✓ data_generation/label_trades.py завершен успешно.
+2025-07-24 12:47:22,400 - pipeline - INFO - ------------------------------
+2025-07-24 12:47:22,400 - pipeline - INFO - 12:47:22 → Запуск data/create_enhanced_training_dataset.py
+2025-07-24 12:47:26,800 - pipeline - INFO - ✓ data/create_enhanced_training_dataset.py завершен успешно.
+2025-07-24 12:47:26,800 - pipeline - INFO - ------------------------------
+2025-07-24 12:47:26,800 - pipeline - INFO - 12:47:26 → Запуск models/train_ensemble_model.py
+2025-07-24 12:50:19,856 - pipeline - INFO - ✓ models/train_ensemble_model.py завершен успешно.
+2025-07-24 12:50:19,856 - pipeline - INFO - ------------------------------
+2025-07-24 12:50:19,856 - pipeline - INFO - 
+✅ 12:50:19 Весь пайплайн выполнен успешно!
