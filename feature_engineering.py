@@ -1,187 +1,198 @@
+#!/usr/bin/env python3
 # feature_engineering.py
-"""
-Адаптированный скрипт для создания обучающего датасета на основе новых, расширенных данных.
-"""
+
 import pandas as pd
-import numpy as np
-from datetime import datetime, timezone
 import os
+import numpy as np
 
 def main():
-    # Пути к файлам
-    expert_trades_file = 'expert_trades.csv' # Файл с идеальными сделками
-    labeled_trades_file = 'labeled_trades.csv' # Файл с размеченными сделками бота
-    enhanced_history_file = 'data/enhanced_full_history_with_indicators.csv' # Новый файл с расширенными данными
-    output_training_file = 'enhanced_training_dataset.csv' # Выходной файл
-    
-    # 1) Загрузим размеченные сделки бота
-    try:
-        labels_bot = pd.read_csv(labeled_trades_file, dtype={'symbol': str})
-        labels_bot['entry_time'] = pd.to_datetime(labels_bot['entry_time'], errors='coerce', utc=True)
-        labels_bot['exit_time'] = pd.to_datetime(labels_bot['exit_time'], errors='coerce', utc=True)
-        labels_bot['source'] = 'bot'
-        print(f"Загружено {len(labels_bot)} размеченных сделок бота.")
-    except Exception as e:
-        print(f"Ошибка при загрузке {labeled_trades_file}: {e}")
-        labels_bot = pd.DataFrame() # Пустой DataFrame если файл не найден или ошибка
+    # 1) Загрузим размеченные сделки от бота
+    labels_bot = pd.read_csv('labeled_trades.csv', dtype={'symbol': str})
+    # Убедимся, что entry_time и exit_time являются datetime объектами
+    labels_bot['entry_time'] = pd.to_datetime(labels_bot['entry_time'], errors='coerce')
+    labels_bot['exit_time'] = pd.to_datetime(labels_bot['exit_time'], errors='coerce')
+    labels_bot['source'] = 'bot'
 
     # 2) Загрузим экспертные сделки, если файл существует
-    labels = labels_bot.copy()
+    expert_trades_file = 'expert_trades.csv'
+    labels = labels_bot.copy() # labels начинается как копия labels_bot
     if os.path.exists(expert_trades_file) and os.path.getsize(expert_trades_file) > 0:
         try:
             labels_expert = pd.read_csv(expert_trades_file, dtype={'symbol': str})
-            labels_expert['entry_time'] = pd.to_datetime(labels_expert['entry_time'], errors='coerce', utc=True)
-            labels_expert['exit_time'] = pd.to_datetime(labels_expert['exit_time'], errors='coerce', utc=True)
+            # Убедимся, что entry_time и exit_time являются datetime объектами
+            labels_expert['entry_time'] = pd.to_datetime(labels_expert['entry_time'], errors='coerce')
+            labels_expert['exit_time'] = pd.to_datetime(labels_expert['exit_time'], errors='coerce')
             labels_expert['source'] = 'expert'
-            # Приоритет у expert-меток: объединяем, оставляя expert в случае дубликатов
-            labels = pd.concat([labels_bot, labels_expert]).drop_duplicates(subset=['symbol', 'entry_time', 'side'], keep='first')
-            print(f"Загружено {len(labels_expert)} экспертных сделок. Итого после объединения: {len(labels)}")
+
+            labels = pd.concat([labels_bot, labels_expert], ignore_index=True)
+            labels.sort_values(by=['symbol', 'entry_time', 'source'], ascending=[True, True, False], inplace=True)
+            labels.drop_duplicates(subset=['symbol', 'entry_time'], keep='first', inplace=True)
+            print(f"Объединено {len(labels_bot)} сделок бота и {len(labels_expert)} экспертных сделок. Итого: {len(labels)} уникальных размеченных записей.")
+        except pd.errors.EmptyDataError:
+            print(f"Файл {expert_trades_file} существует, но пуст. Используем только метки бота.")
         except Exception as e:
             print(f"Ошибка при загрузке {expert_trades_file}: {e}. Используем только метки бота.")
     else:
-        print("Файл expert_trades.csv не найден или пуст. Используем только метки бота.")
-
+        print(f"Файл {expert_trades_file} не найден или пуст. Используем только метки бота.")
+    
     if labels.empty:
-        print("Нет размеченных сделок для обработки. Выход.")
-        # Создаем пустой файл
-        pd.DataFrame(columns=[]).to_csv(output_training_file, index=False)
+        print("Нет данных для разметки. Убедитесь, что 'labeled_trades.csv' или 'expert_trades.csv' содержат данные.")
+        required_cols = ['symbol', 'side', 'entry_time', 'entry_price', 'exit_time', 'exit_price', 'reason', 'pnl', 'label']
+        # Создаем пустой DataFrame с нужными колонками, чтобы избежать ошибок на следующих шагах
+        # Добавляем все колонки, которые могут быть в training_dataset.csv, включая фичи
+        pd.DataFrame(columns=['symbol', 'entry_time', 'label'] + [col for col in required_cols if col not in ['symbol', 'entry_time', 'label']]).to_csv('training_dataset.csv', index=False)
         return
 
-    # 3) Загрузим полную историю с расширенными индикаторами
-    try:
-        full_history = pd.read_csv(enhanced_history_file, dtype={'symbol': str})
-        full_history['timestamp'] = pd.to_datetime(full_history['timestamp'], errors='coerce', utc=True)
-        full_history.dropna(subset=['timestamp'], inplace=True)
-        full_history.set_index('timestamp', inplace=True)
-        full_history.sort_index(inplace=True)
-        print(f"Загружено {len(full_history)} строк полной истории с расширенными индикаторами.")
-    except Exception as e:
-        print(f"Ошибка при загрузке {enhanced_history_file}: {e}")
-        print("Выход.")
-        # Создаем пустой файл
-        pd.DataFrame(columns=[]).to_csv(output_training_file, index=False)
-        return
+    # 3) Загрузим полную историю с индикаторами
+    full_history = pd.read_csv('full_history_with_indicators.csv', dtype={'symbol': str})
+    # Убедимся, что timestamp является datetime объектом
+    full_history['timestamp'] = pd.to_datetime(full_history['timestamp'], errors='coerce')
+    print(f"Загружено {len(full_history)} строк полной истории.")
 
+    # 4) Для удобства объединения, переименуем timestamp в истории в join_time
+    labels['join_time'] = labels['entry_time']
+
+    # --- НАЧАЛО ИСПРАВЛЕНИЙ ДЛЯ ВРЕМЕННЫХ ЗОН ---
+    # Функция для нормализации временных меток в UTC
+    def normalize_timestamp_to_utc(ts):
+        if pd.isna(ts): # Пропускаем NaN значения
+            return ts
+        if ts.tzinfo is not None and ts.tzinfo.utcoffset(ts) is not None:
+            # Если метка уже tz-aware, конвертируем её в UTC
+            return ts.tz_convert('UTC')
+        else:
+            # Если метка tz-naive (без информации о часовом поясе),
+            # Предполагаем, что она в UTC, и делаем её tz-aware в UTC.
+            return ts.tz_localize('UTC')
+
+    # Применяем нормализацию к 'join_time' в DataFrame 'labels'
+    labels['join_time'] = labels['join_time'].apply(normalize_timestamp_to_utc)
+
+    # Применяем нормализацию к 'timestamp' в DataFrame 'full_history'
+    # Это КРАЙНЕ ВАЖНО, чтобы оба столбца для merge_asof были единообразны (все UTC, tz-aware)
+    full_history['timestamp'] = full_history['timestamp'].apply(normalize_timestamp_to_utc)
+
+    # --- КОНЕЦ ИСПРАВЛЕНИЙ ДЛЯ ВРЕМЕННЫХ ЗОН ---
+
+    full_history.rename(columns={'timestamp': 'history_timestamp'}, inplace=True)
+
+    # 5) Объединяем размеченные сделки с историческими данными (индикаторами)
     print("Объединение размеченных сделок с историческими данными...")
-    
-    # Список для хранения результатов
-    training_data_rows = []
-    
-    # 4) Для каждой размеченной сделки извлекаем данные индикаторов
-    all_symbols = labels['symbol'].unique()
-    for sym in all_symbols:
-        labels_sym = labels[labels['symbol'] == sym].sort_values('entry_time')
-        history_sym = full_history[full_history['symbol'] == sym].sort_index()
+    merged_parts = []
+    for sym in labels['symbol'].unique():
+        labels_sym = labels[labels['symbol'] == sym].sort_values('join_time')
+        history_sym = full_history[full_history['symbol'] == sym].sort_values('history_timestamp')
         
-        if history_sym.empty:
-            print(f"   Пропущен символ {sym}: нет исторических данных.")
-            continue
-            
-        # Используем merge_asof для поиска ближайшей свечи перед entry_time
-        # join_time - это timestamp свечи, которую мы хотим использовать
-        labels_sym_sorted = labels_sym.sort_values('entry_time')
-        history_sym_sorted = history_sym.sort_index()
-        
-        # merge_asof требует, чтобы оба DataFrame были отсортированы по ключевой колонке
-        merged_df = pd.merge_asof(
-            labels_sym_sorted,
-            history_sym_sorted,
-            left_on='entry_time',
-            right_index=True,
+        m = pd.merge_asof(
+            labels_sym,
+            history_sym,
+            left_on='join_time',
+            right_on='history_timestamp',
             by='symbol',
-            direction='backward', # Ищем свечу, которая закончилась до entry_time
-            tolerance=pd.Timedelta('10s') # Небольшой допуск
+            direction='backward',
+            tolerance=pd.Timedelta('1m')
         )
-        
-        # Отфильтровываем случаи, когда не удалось найти соответствующую свечу
-        merged_df.dropna(subset=history_sym_sorted.columns, how='all', inplace=True)
-        
-        # Добавляем данные в список
-        if not merged_df.empty:
-            training_data_rows.append(merged_df)
-            
-    if not training_data_rows:
-        print("Не удалось объединить ни одну размеченную сделку с историческими данными. Выход.")
-        # Создаем пустой файл с заголовками
-        # Определяем все возможные колонки, которые должны быть в training_dataset.csv
-        all_cols = list(full_history.columns) + list(labels.columns) 
-        pd.DataFrame(columns=all_cols).to_csv(output_training_file, index=False)
-        return
-        
-    # 5) Объединяем все результаты
-    combined_df = pd.concat(training_data_rows, ignore_index=True)
-    print(f"Объединено {len(combined_df)} строк для обучения.")
-    
-    # Определяем колонки, которые не нужны для признаков
-    columns_to_exclude = [
-        'open', 'high', 'low', 'close', 'volume', # Исключаем OHLCV, если уже есть индикаторы
-        'symbol', 'join_time', 'side', 'entry_time', 'exit_time', 
-        'entry_price', 'exit_price', 'reason', 'pnl', 'source'
+        merged_parts.append(m)
+    data = pd.concat(merged_parts, ignore_index=True)
+
+    # 6) Удаляем строки, где не нашлось соответствия в истории
+    initial_rows = len(data)
+    data.dropna(subset=['history_timestamp'], inplace=True) 
+    print(f"Удалено {initial_rows - len(data)} строк без соответствующей исторической свечи.")
+
+    # --- НОВЫЕ ПРИЗНАКИ ---
+
+    # 7) Добавляем временные признаки
+    print("Добавление временных признаков (этот блок можно удалить, если признаки не нужны)...")
+    # Убедимся, что 'entry_time' также tz-aware для dt.hour и т.д.
+    data['entry_time'] = data['entry_time'].apply(normalize_timestamp_to_utc)
+
+    # # УДАЛЕНЫ ВРЕМЕННЫЕ ПРИЗНАКИ ПО ЗАПРОСУ ПОЛЬЗОВАТЕЛЯ:
+    # data['hour_of_day'] = data['entry_time'].dt.hour
+    # data['day_of_week'] = data['entry_time'].dt.dayofweek
+    # data['day_of_month'] = data['entry_time'].dt.day
+    # data['month_of_year'] = data['entry_time'].dt.month
+    # data['is_weekend'] = ((data['entry_time'].dt.dayofweek == 5) | (data['entry_time'].dt.dayofweek == 6)).astype(int)
+
+    # 8) Добавляем отстающие (lagged) признаки - ЭТОТ БЛОК ПОКА НЕ МЕНЯЕМ
+    print("Добавление отстающих признаков (для будущей имплементации в generate_history.py)...")
+
+    # 9) Выбираем признаки и метку
+    # ОБНОВЛЕННЫЙ СПИСОК ПРИЗНАКОВ: Удалены STOCH, CCI, VWAP и временные признаки
+    feature_cols = [
+        'ATR_14',
+        'EMA_50', 'EMA_200',
+        'RSI_14',
+        'MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9',
+        'BB_upper', 'BB_middle', 'BB_lower', 'BB_width',
+        'VOLUME_EMA',
+        'KAMA_10_2_30',
+        'CMF_20',
+        'RVI_14',
+        'ADX_14',
+        'volume',
+        'open', 'high', 'low', 'close',
+        # Удалены временные признаки:
+        # 'hour_of_day',
+        # 'day_of_week',
+        # 'day_of_month',
+        # 'month_of_year',
+        # 'is_weekend'
     ]
+
+    # Фильтруем feature_cols, чтобы оставить только те, что фактически есть в DataFrame
+    data_columns_set = set(data.columns)
     
-    # Сохраняем entry_time, symbol и side отдельно для последующего объединения с X и y
-    entry_times_to_save = combined_df['entry_time']
-    symbols_to_save = combined_df['symbol']
-    sides_to_save = combined_df['side']
+    # Создаем новый список признаков, содержащий только те, которые фактически присутствуют в 'data'
+    final_feature_cols = [col for col in feature_cols if col in data_columns_set]
+
+    missing_from_expected = [col for col in feature_cols if col not in data_columns_set]
+    if missing_from_expected:
+        print(f"⚠️ Предупреждение: Следующие ожидаемые признаки отсутствуют в итоговом датасете и будут исключены: {missing_from_expected}.")
+        # Мы уже сформировали final_feature_cols, так что просто выводим предупреждение.
+
+    # Создаем X (признаки) и y (метки)
+    X = data[final_feature_cols].copy() # Используем final_feature_cols
+    y = data["label"].copy()
+
+    # --- ОКОНЧАТЕЛЬНАЯ ОБРАБОТКА И СОХРАНЕНИЕ ---
+
+    # Важно: перед dropna сохраняем 'entry_time' и 'symbol'
+    # Используем 'data.index' для синхронизации после dropna
+    entry_times_to_save = data['entry_time'].copy()
+    symbols_to_save = data['symbol'].copy()
+
+    # Объединяем X и y для совместной очистки NaN
+    combined_for_dropna = pd.concat([X, y], axis=1)
     
-    # Удаляем колонки, которые не нужны для признаков, а также целевую переменную 'label'
-    X = combined_df.drop(columns=[col for col in columns_to_exclude if col in combined_df.columns] + ['label'], errors='ignore')
-    y = combined_df['label']
-    
-    # 6) Обрабатываем бесконечные значения и большие числа
-    print(f"До обработки inf/NaN: {len(X)} строк.")
-    X.replace([np.inf, -np.inf], np.nan, inplace=True)
-    
-    # 7) Удаляем признаки с большим количеством NaN (если необходимо)
-    initial_features_count = X.shape[1]
-    nan_threshold = 0.8 # Если более 80% значений NaN
-    cols_to_drop_nan = X.columns[X.isnull().sum() / len(X) > nan_threshold].tolist()
-    if cols_to_drop_nan:
-        X.drop(columns=cols_to_drop_nan, inplace=True)
-        print(f"Удалены признаки с более чем {nan_threshold*100}% NaN: {cols_to_drop_nan}")
-    print(f"После удаления признаков с большим количеством NaN: {X.shape[1]} признаков.")
-    
-    # 8) Заполняем оставшиеся NaN медианой
-    # Важно: медиана должна быть рассчитана на обучающем наборе, но для простоты здесь заполняем глобально
-    # Для продакшена лучше использовать SimpleImputer в пайплайне
-    for col in X.columns:
-        if X[col].isnull().any():
-            median_val = X[col].median()
-            if not pd.isna(median_val): # Проверяем, что медиана не NaN
-                X[col].fillna(median_val, inplace=True)
-            else:
-                # Если колонка полностью NaN, заполняем 0 или удаляем
-                print(f"Предупреждение: Колонка '{col}' полностью NaN после фильтрации. Заполнение 0.")
-                X[col].fillna(0, inplace=True) # Заполняем 0, если вся колонка NaN
-                
-    print(f"После заполнения NaN: {len(X)} строк.")
-    
-    # 9) Финальная очистка от любых оставшихся NaN/inf (должны быть уже обработаны)
-    before_dropna_final = len(X)
-    # Создаем DataFrame для final dropna, включая y
-    combined_for_dropna = pd.concat([X, y], axis=1) # Используем y как целевую переменную
+    before_dropna_final = len(combined_for_dropna)
     combined_for_dropna = combined_for_dropna.dropna()
-    # Разделяем обратно
-    X = combined_for_dropna.drop(columns=['label'])
-    y = combined_for_dropna['label']
-    after_dropna_final = len(X)
-    print(f"Финальная очистка NaN/inf: удалено {before_dropna_final - after_dropna_final} строк.")
-    
-    # Объединяем X, y, entry_time, symbol и side в один DataFrame для сохранения
-    training_df = pd.concat([X, y, entry_times_to_save, symbols_to_save, sides_to_save], axis=1)
-    
+    print(f"После final dropna: {before_dropna_final} -> {len(combined_for_dropna)} строк.")
+
+    # Разделяем обратно X и y после очистки
+    y = combined_for_dropna.pop('label') # Извлекаем метку
+    X = combined_for_dropna # Оставшееся - это признаки
+
+    # Синхронизируем entry_times_to_save и symbols_to_save с отфильтрованными индексами
+    entry_times_to_save = entry_times_to_save.loc[X.index]
+    symbols_to_save = symbols_to_save.loc[X.index]
+
+    # Объединяем X, y, entry_time и symbol в один DataFrame для сохранения
+    training_df = pd.concat([X, y, entry_times_to_save, symbols_to_save], axis=1)
+
     # 10) Сохраняем итоговый файл
+    output_training_file = 'training_dataset.csv'
     if not training_df.empty:
         training_df.to_csv(output_training_file, index=False)
         print(f"Обучающий датасет сохранен в {output_training_file}. Всего: {len(training_df)} строк.")
-        print(f"Распределение меток:\n{training_df['label'].value_counts()}")
-        print(f"Использованные признаки (X): {X.columns.tolist()}")
+        print(f"Распределение меток: \n{training_df['label'].value_counts()}")
+        print(f"Использованные признаки (X): {X.columns.tolist()}") 
     else:
         # Если DataFrame пуст, создаем пустой файл с заголовками
-        print(f"Обучающий датасет пуст. Создаю пустой файл {output_training_file}.")
-        # Определяем все возможные колонки, которые должны быть в training_dataset.csv
-        all_cols = X.columns.tolist() + ['label', 'entry_time', 'symbol', 'side']
-        pd.DataFrame(columns=all_cols).to_csv(output_training_file, index=False)
-        
-if __name__ == '__main__':
+        empty_df = pd.DataFrame(columns=feature_cols + ['label', 'entry_time', 'symbol'])
+        empty_df.to_csv(output_training_file, index=False)
+        print(f"Не найдено данных для обучения. Создан или обновлен пустой файл {output_training_file}.")
+
+
+if __name__ == "__main__":
     main()
